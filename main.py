@@ -88,8 +88,9 @@ def reset_interaction_state(s: UserSession) -> None:
 
 
 def main_keyboard() -> str:
+    """Inline-кнопки под сообщением (не занимают место как постоянная клавиатура снизу)."""
     return (
-        Keyboard()
+        Keyboard(inline=True)
         .add(Text("Меню"), color=KeyboardButtonColor.PRIMARY)
         .add(Text("Сотрудник"), color=KeyboardButtonColor.SECONDARY)
         .row()
@@ -109,11 +110,7 @@ def main_keyboard() -> str:
 
 
 def cancel_keyboard() -> str:
-    return (
-        Keyboard()
-        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
-        .get_json()
-    )
+    return Keyboard(inline=True).add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE).get_json()
 
 
 def cleaning_type_lines() -> str:
@@ -178,7 +175,9 @@ async def menu_handler(message: Message) -> None:
     await message.answer(
         "Добро пожаловать. Бот формирует задания для горничных: очередь номеров, виды уборки, "
         "комплекты белья, лимит площади и автоплан из Bnovo — как в мобильном приложении.\n\n"
-        "Выберите действие кнопками или откройте «Меню».",
+        "Действия — встроенные кнопки под этим сообщением (inline). Напишите «Меню», чтобы снова показать их.\n"
+        "Если снизу экрана осталась старая «постоянная» клавиатура — в приложении ВК её можно скрыть.\n\n"
+        "Выберите действие:",
         keyboard=main_keyboard(),
     )
 
