@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
 
+from vkbottle import Keyboard, KeyboardButtonColor, Text
 from vkbottle.bot import Bot, Message
-from vkbottle.keyboard import Keyboard, KeyboardButtonColor, Text
 
 import config
 import vk_wall
@@ -67,6 +67,24 @@ def sess_of(uid: int) -> UserSession:
     if uid not in SESSIONS:
         SESSIONS[uid] = UserSession()
     return SESSIONS[uid]
+
+
+def reset_interaction_state(s: UserSession) -> None:
+    """Сброс пошаговых сценариев (очередь и сотрудник не трогаем)."""
+    s.state = "idle"
+    s.pending_room_id = None
+    s.pending_linen_profile = None
+    s.pending_cleaning_type = None
+    s.pending_linen_variant = None
+    s.pending_linen_color = None
+    s.room_list_offset = 0
+    s.bnovo_planned = None
+    s.bnovo_wizard_steps = []
+    s.bnovo_wizard_index = 0
+    s.bnovo_layout_choices = {}
+    s.bnovo_per_bed_choices = {}
+    s.bnovo_per_bed_color_draft = None
+    s.bnovo_await_classic_beds_for = None
 
 
 def main_keyboard() -> str:
@@ -156,8 +174,7 @@ def rooms_page(sess: UserSession) -> tuple[str, int]:
 @bot.on.message(text=["Меню", "меню", "старт", "Старт", "/start", "start", "Start"])
 async def menu_handler(message: Message) -> None:
     s = sess_of(message.from_id)
-    s.state = "idle"
-    s.pending_room_id = None
+    reset_interaction_state(s)
     await message.answer(
         "Добро пожаловать. Бот формирует задания для горничных: очередь номеров, виды уборки, "
         "комплекты белья, лимит площади и автоплан из Bnovo — как в мобильном приложении.\n\n"
@@ -176,12 +193,7 @@ async def pick_employee_cmd(message: Message) -> None:
 @bot.on.message(text="Отмена")
 async def cancel_cmd(message: Message) -> None:
     s = sess_of(message.from_id)
-    s.state = "idle"
-    s.pending_room_id = None
-    s.bnovo_planned = None
-    s.bnovo_wizard_steps = []
-    s.bnovo_wizard_index = 0
-    s.bnovo_await_classic_beds_for = None
+    reset_interaction_state(s)
     await message.answer("Ок.", keyboard=main_keyboard())
 
 
@@ -442,28 +454,33 @@ async def dispatcher(message: Message) -> None:
         return
 
     if s.state == "pick_floor4_beds":
-        if text.isdigit():
-            n = int(text)
-            room = db.get_room_by_id(s.pending_room_id or -1)
-            if room and s.pending_linen_color and s.pending_linen_variant is not None:
-                mx = max(1, min(20, s.pending_floor4_max_beds))
-                beds = max(1, min(mx, n))
-                s.queue.append(
-                    QueueItem(
-                        id=room.id,
-                        name=room.name,
-                        area=room.area,
-                        cleaning_type=s.pending_cleaning_type or "current",
-                        linen_profile="floor4",
-                        linen_variant=s.pending_linen_variant,
-                        linen_color=s.pending_linen_color,
-                        linen_beds=beds,
-                    )
-                )
-                s.state = "idle"
-                s.pending_room_id = None
-                await message.answer(f"Добавлено: {room.name}", keyboard=main_keyboard())
+        if not text.isdigit():
+            mx = max(1, min(20, s.pending_floor4_max_beds))
+            await message.answer(f"Введите целое число кроватей от 1 до {mx}.")
             return
+        n = int(text)
+        room = db.get_room_by_id(s.pending_room_id or -1)
+        if not (room and s.pending_linen_color and s.pending_linen_variant is not None):
+            s.state = "idle"
+            await message.answer("Сессия добавления прервана. Начните добавление помещения снова.", keyboard=main_keyboard())
+            return
+        mx = max(1, min(20, s.pending_floor4_max_beds))
+        beds = max(1, min(mx, n))
+        s.queue.append(
+            QueueItem(
+                id=room.id,
+                name=room.name,
+                area=room.area,
+                cleaning_type=s.pending_cleaning_type or "current",
+                linen_profile="floor4",
+                linen_variant=s.pending_linen_variant,
+                linen_color=s.pending_linen_color,
+                linen_beds=beds,
+            )
+        )
+        s.state = "idle"
+        s.pending_room_id = None
+        await message.answer(f"Добавлено: {room.name}", keyboard=main_keyboard())
         return
 
     if s.state == "pick_floor4_layout":
@@ -810,9 +827,9 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
         return
 
     if isinstance(step, Floor4Layout):
-        if low in ("1", "соед"):
+        if low in ("1", "соед", "соединены"):
             s.bnovo_layout_choices[step.planned.name] = (True, 2)
-        elif low in ("2", "разъед"):
+        elif low in ("2", "разъед", "разъединены"):
             s.bnovo_layout_choices[step.planned.name] = (False, 2)
         else:
             await message.answer("1 или 2")
@@ -827,6 +844,8 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
             if text in cmap:
                 s.bnovo_per_bed_color_draft = cmap[text]
                 await message.answer(f"Число кроватей 1–{step.max_beds}:")
+            else:
+                await message.answer("Выберите цвет: 1 — голубое, 2 — серое, 3 — полоска.")
             return
         if text.isdigit():
             beds = max(1, min(step.max_beds, int(text)))
@@ -834,6 +853,8 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
             s.bnovo_per_bed_color_draft = None
             s.bnovo_wizard_index += 1
             await prompt_bnovo_step(message, s)
+        else:
+            await message.answer(f"Введите число кроватей от 1 до {step.max_beds}.")
         return
 
 
@@ -858,6 +879,10 @@ async def apply_full_bnovo(message: Message, s: UserSession) -> None:
     s.bnovo_planned = None
     s.bnovo_wizard_steps = []
     s.bnovo_wizard_index = 0
+    s.bnovo_layout_choices = {}
+    s.bnovo_per_bed_choices = {}
+    s.bnovo_per_bed_color_draft = None
+    s.bnovo_await_classic_beds_for = None
     await message.answer(
         f"Очередь из Bnovo на {cdate.isoformat()} готова ({len(queue)} поз.). Проверьте и нажмите «Отправить».",
         keyboard=main_keyboard(),

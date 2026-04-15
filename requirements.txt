@@ -1,3 +1,4 @@
-vkbottle>=4.3.12
+# Keyboard/Text импортируются из корня пакета (проверено на 4.8.x).
+vkbottle>=4.8.0
 python-dotenv>=1.0.0
 requests>=2.31.0
