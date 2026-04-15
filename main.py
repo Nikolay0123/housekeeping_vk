@@ -113,6 +113,159 @@ def cancel_keyboard() -> str:
     return Keyboard(inline=True).add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE).get_json()
 
 
+def cleaning_keyboard() -> str:
+    return (
+        Keyboard(inline=True)
+        .add(Text("1"))
+        .add(Text("2"))
+        .add(Text("3"))
+        .row()
+        .add(Text("4"))
+        .add(Text("5"))
+        .row()
+        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+        .get_json()
+    )
+
+
+def bnovo_floor_keyboard() -> str:
+    return (
+        Keyboard(inline=True)
+        .add(Text("1"))
+        .add(Text("2"))
+        .row()
+        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+        .get_json()
+    )
+
+
+def layout_joined_split_keyboard() -> str:
+    return (
+        Keyboard(inline=True)
+        .add(Text("Соединены"), color=KeyboardButtonColor.POSITIVE)
+        .add(Text("Разъединены"), color=KeyboardButtonColor.SECONDARY)
+        .row()
+        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+        .get_json()
+    )
+
+
+def beds_12_keyboard() -> str:
+    return (
+        Keyboard(inline=True)
+        .add(Text("1"))
+        .add(Text("2"))
+        .row()
+        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+        .get_json()
+    )
+
+
+def color_keyboard(*, max_n: int) -> str:
+    k = Keyboard(inline=True)
+    for i in range(1, max_n + 1):
+        k.add(Text(str(i)))
+    k.row().add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+    return k.get_json()
+
+
+def linen_color_max_for_session(s: UserSession) -> int:
+    if s.pending_linen_variant == TL.LINEN_VARIANT_FLOOR4_PER_BED:
+        return 3
+    return 4
+
+
+def floor4_beds_keyboard(max_beds: int) -> str:
+    mx = max(1, min(20, max_beds))
+    k = Keyboard(inline=True)
+    for i in range(1, mx + 1):
+        k.add(Text(str(i)))
+        if i % 5 == 0:
+            k.row()
+    if mx % 5 != 0:
+        k.row()
+    k.add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+    return k.get_json()
+
+
+def linen_classic_variant_keyboard(*, include_109: bool) -> str:
+    k = Keyboard(inline=True)
+    for n in (1, 2, 3, 4):
+        k.add(Text(str(n)))
+    k.row()
+    if include_109:
+        k.add(Text("5")).add(Text("6")).row()
+    k.add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+    return k.get_json()
+
+
+def linen_floor4_variant_keyboard() -> str:
+    return (
+        Keyboard(inline=True)
+        .add(Text("10"))
+        .add(Text("11"))
+        .add(Text("12"))
+        .row()
+        .add(Text("1"))
+        .add(Text("2"))
+        .add(Text("3"))
+        .row()
+        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+        .get_json()
+    )
+
+
+def linen_variant_keyboard_for_session(s: UserSession) -> str:
+    room = db.get_room_by_id(s.pending_room_id or -1)
+    if not room:
+        return cancel_keyboard()
+    prof = s.pending_linen_profile
+    if prof == "classic":
+        return linen_classic_variant_keyboard(include_109=TL.is_room109(room.name))
+    if prof == "floor4":
+        return linen_floor4_variant_keyboard()
+    return cancel_keyboard()
+
+
+def employees_pick_keyboard() -> str:
+    k = Keyboard(inline=True)
+    emps = db.get_employees()
+    for i, _e in enumerate(emps, 1):
+        k.add(Text(str(i)))
+        if i % 5 == 0:
+            k.row()
+    if len(emps) % 5 != 0:
+        k.row()
+    k.add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+    return k.get_json()
+
+
+def rooms_pick_keyboard(sess: UserSession) -> str:
+    rooms = TL.sort_rooms_for_picker(db.get_active_rooms())
+    page_size = 12
+    start = sess.room_list_offset
+    chunk = rooms[start : start + page_size]
+    k = Keyboard(inline=True)
+    for idx in range(len(chunk)):
+        n = start + idx + 1
+        k.add(Text(str(n)))
+        if (idx + 1) % 4 == 0:
+            k.row()
+    if len(chunk) % 4 != 0:
+        k.row()
+    nav: list[Text] = []
+    if start > 0:
+        nav.append(Text("предыдущие"))
+    if start + page_size < len(rooms):
+        nav.append(Text("следующие"))
+    if nav:
+        for t in nav:
+            k.add(t)
+        k.row()
+    k.add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+    return k.get_json()
+
+
 def cleaning_type_lines() -> str:
     lines = ["Выберите вид уборки (номер):"]
     opts = [
@@ -186,7 +339,7 @@ async def menu_handler(message: Message) -> None:
 async def pick_employee_cmd(message: Message) -> None:
     s = sess_of(message.from_id)
     s.state = "pick_employee"
-    await message.answer(employees_text(), keyboard=cancel_keyboard())
+    await message.answer(employees_text(), keyboard=employees_pick_keyboard())
 
 
 @bot.on.message(text="Отмена")
@@ -205,7 +358,10 @@ async def add_room_cmd(message: Message) -> None:
     s.state = "pick_room"
     s.room_list_offset = 0
     txt, _ = rooms_page(s)
-    await message.answer(txt + "\n\nДля листания: «следующие» / «предыдущие»", keyboard=cancel_keyboard())
+    await message.answer(
+        txt + "\n\nНомер помещения — кнопкой ниже; листание — «следующие» / «предыдущие».",
+        keyboard=rooms_pick_keyboard(s),
+    )
 
 
 @bot.on.message(text="Очередь")
@@ -241,7 +397,7 @@ async def bnovo_cmd(message: Message) -> None:
     s.state = "bnovo_pick_floor"
     await message.answer(
         "Автозадание на завтра по Bnovo.\n1 — 1 этаж (101–109 + общие)\n2 — 4 этаж (порядок как в приложении)",
-        keyboard=cancel_keyboard(),
+        keyboard=bnovo_floor_keyboard(),
     )
 
 
@@ -357,7 +513,7 @@ async def dispatcher(message: Message) -> None:
                 s.state = "idle"
                 await message.answer(f"Исполнитель: {e.display_name}", keyboard=main_keyboard())
                 return
-        await message.answer("Не понял. " + employees_text())
+        await message.answer("Не понял. " + employees_text(), keyboard=employees_pick_keyboard())
         return
 
     if s.state == "enter_comment":
@@ -370,12 +526,12 @@ async def dispatcher(message: Message) -> None:
         if low.startswith("следующие"):
             s.room_list_offset += 12
             txt, _ = rooms_page(s)
-            await message.answer(txt)
+            await message.answer(txt, keyboard=rooms_pick_keyboard(s))
             return
         if "предыдущ" in low:
             s.room_list_offset = max(0, s.room_list_offset - 12)
             txt, _ = rooms_page(s)
-            await message.answer(txt)
+            await message.answer(txt, keyboard=rooms_pick_keyboard(s))
             return
         if text.isdigit():
             n = int(text)
@@ -384,7 +540,8 @@ async def dispatcher(message: Message) -> None:
                 r = rooms[n - 1]
                 await start_add_room_flow(message, s, r)
                 return
-        await message.answer("Укажите номер из списка.")
+        txt, _ = rooms_page(s)
+        await message.answer("Укажите номер из списка или нажмите кнопку.\n\n" + txt, keyboard=rooms_pick_keyboard(s))
         return
 
     if s.state == "pick_cleaning":
@@ -393,7 +550,7 @@ async def dispatcher(message: Message) -> None:
             if ct:
                 await apply_cleaning_choice(message, s, ct)
                 return
-        await message.answer(cleaning_type_lines())
+        await message.answer(cleaning_type_lines(), keyboard=cleaning_keyboard())
         return
 
     if s.state == "pick_linen_variant":
@@ -407,20 +564,26 @@ async def dispatcher(message: Message) -> None:
             if prof == "floor4":
                 s.pending_linen_variant = v
                 s.state = "pick_linen_color"
-                await message.answer(
-                    "Цвет белья:\n1 голубое\n2 серое\n3 полоска\n4 белое",
-                    keyboard=cancel_keyboard(),
+                n_col = 3 if v == TL.LINEN_VARIANT_FLOOR4_PER_BED else 4
+                hint = (
+                    "Цвет белья:\n1 голубое\n2 серое\n3 полоска"
+                    if n_col == 3
+                    else "Цвет белья:\n1 голубое\n2 серое\n3 полоска\n4 белое"
                 )
+                await message.answer(hint, keyboard=color_keyboard(max_n=n_col))
                 return
             if prof == "classic":
                 if v == 2:
                     s.pending_linen_variant = 2
                     s.state = "pick_variant2_beds"
-                    await message.answer("Вариант 2: сколько кроватей застелить?\n1 или 2", keyboard=cancel_keyboard())
+                    await message.answer(
+                        "Вариант 2: сколько кроватей застелить?",
+                        keyboard=beds_12_keyboard(),
+                    )
                     return
                 await finalize_add_room(message, s, room, v)
                 return
-        await message.answer("Номер варианта из подсказки выше.")
+        await message.answer("Выберите вариант кнопкой или введите номер.", keyboard=linen_variant_keyboard_for_session(s))
         return
 
     if s.state == "pick_variant2_beds":
@@ -429,13 +592,15 @@ async def dispatcher(message: Message) -> None:
             if room:
                 await finalize_add_room(message, s, room, 2, linen_beds=int(text))
                 return
-        await message.answer("Ответьте 1 или 2.")
+        await message.answer("Выберите 1 или 2 кровати.", keyboard=beds_12_keyboard())
         return
 
     if s.state == "pick_linen_color":
+        mx_col = linen_color_max_for_session(s)
         cmap = {"1": "blue", "2": "gray", "3": "stripe", "4": "white"}
-        if text in cmap:
-            s.pending_linen_color = cmap[text]
+        allowed = {k: v for k, v in cmap.items() if int(k) <= mx_col}
+        if text in allowed:
+            s.pending_linen_color = allowed[text]
             room = db.get_room_by_id(s.pending_room_id or -1)
             if not room:
                 return
@@ -444,18 +609,21 @@ async def dispatcher(message: Message) -> None:
                 s.state = "pick_floor4_beds"
                 await message.answer(
                     f"Сколько кроватей (1–{s.pending_floor4_max_beds})?",
-                    keyboard=cancel_keyboard(),
+                    keyboard=floor4_beds_keyboard(s.pending_floor4_max_beds),
                 )
                 return
             await finalize_floor4_manual(message, s, room)
             return
-        await message.answer("1–4")
+        await message.answer(f"Выберите цвет: 1–{mx_col}.", keyboard=color_keyboard(max_n=mx_col))
         return
 
     if s.state == "pick_floor4_beds":
         if not text.isdigit():
             mx = max(1, min(20, s.pending_floor4_max_beds))
-            await message.answer(f"Введите целое число кроватей от 1 до {mx}.")
+            await message.answer(
+                f"Введите число кроватей от 1 до {mx} или нажмите кнопку.",
+                keyboard=floor4_beds_keyboard(s.pending_floor4_max_beds),
+            )
             return
         n = int(text)
         room = db.get_room_by_id(s.pending_room_id or -1)
@@ -488,7 +656,7 @@ async def dispatcher(message: Message) -> None:
         elif low in ("2", "разъед", "разъединены"):
             joined = False
         else:
-            await message.answer("1 — соединены, 2 — разъединены")
+            await message.answer("Выберите раскладку кроватей:", keyboard=layout_joined_split_keyboard())
             return
         room = db.get_room_by_id(s.pending_room_id or -1)
         if room:
@@ -515,7 +683,7 @@ async def dispatcher(message: Message) -> None:
         if text == "2":
             await run_bnovo(message, s, FloorChoice.FOURTH)
             return
-        await message.answer("1 или 2")
+        await message.answer("Выберите этаж кнопкой или введите 1 / 2.", keyboard=bnovo_floor_keyboard())
         return
 
     if s.state == "bnovo_wizard":
@@ -613,7 +781,7 @@ async def start_add_room_flow(message: Message, s: UserSession, r: RoomRow) -> N
     s.pending_linen_profile = TL.room_linen_profile(r.name)
     s.pending_floor4_max_beds = 4
     s.state = "pick_cleaning"
-    await message.answer(f"{r.name}\n{cleaning_type_lines()}", keyboard=cancel_keyboard())
+    await message.answer(f"{r.name}\n{cleaning_type_lines()}", keyboard=cleaning_keyboard())
 
 
 async def apply_cleaning_choice(message: Message, s: UserSession, ct: str) -> None:
@@ -627,14 +795,17 @@ async def apply_cleaning_choice(message: Message, s: UserSession, ct: str) -> No
     if prof == "floor4" and ct != "current":
         if TL.is_floor4_layout_bnovo_room(name):
             s.state = "pick_floor4_layout"
-            await message.answer("Кровати на 4 этаже:\n1 — соединены\n2 — разъединены", keyboard=cancel_keyboard())
+            await message.answer(
+                "Кровати на 4 этаже:\n1 — соединены\n2 — разъединены\nили кнопки ниже.",
+                keyboard=layout_joined_split_keyboard(),
+            )
             return
         if TL.is_floor4_per_bed_bnovo_room(name):
             s.pending_linen_variant = TL.LINEN_VARIANT_FLOOR4_PER_BED
             s.state = "pick_linen_color"
             await message.answer(
                 "Цвет (per-bed номера):\n1 голубое\n2 серое\n3 полоска",
-                keyboard=cancel_keyboard(),
+                keyboard=color_keyboard(max_n=3),
             )
             return
 
@@ -659,11 +830,11 @@ async def apply_cleaning_choice(message: Message, s: UserSession, ct: str) -> No
             opts = "Вариант белья (classic):\n1 — вар.1\n2 — вар.2 (две 1,5)\n3 — люкс\n4 — люкс+двусп. пододеяльник"
             if TL.is_room109(name):
                 opts += "\n5 — 109 соединены\n6 — 109 разъединены"
-            await message.answer(opts, keyboard=cancel_keyboard())
+            await message.answer(opts, keyboard=linen_classic_variant_keyboard(include_109=TL.is_room109(name)))
         else:
             await message.answer(
                 "Вариант белья (4 этаж):\n10 — на кровать\n11 — соединены\n12 — разъединены\n1–3 устар. база2/3/4 гостя",
-                keyboard=cancel_keyboard(),
+                keyboard=linen_floor4_variant_keyboard(),
             )
         return
 
@@ -775,15 +946,15 @@ async def prompt_bnovo_step(message: Message, s: UserSession) -> None:
     if isinstance(step, ClassicBeds):
         p = step.planned
         await message.answer(
-            f"{p.name}: кровати\n1 — соединены\n2 — разъединены (затем уточним1–2 кровати)",
-            keyboard=cancel_keyboard(),
+            f"{p.name}: кровати\n1 — соединены\n2 — разъединены (затем уточним 1–2 кровати)\nили кнопки ниже.",
+            keyboard=layout_joined_split_keyboard(),
         )
         return
     if isinstance(step, Floor4Layout):
         p = step.planned
         await message.answer(
-            f"{p.name}: раскладка\n1 — соединены\n2 — разъединены",
-            keyboard=cancel_keyboard(),
+            f"{p.name}: раскладка\n1 — соединены\n2 — разъединены\nили кнопки ниже.",
+            keyboard=layout_joined_split_keyboard(),
         )
         return
     if isinstance(step, Floor4PerBed):
@@ -791,7 +962,7 @@ async def prompt_bnovo_step(message: Message, s: UserSession) -> None:
         await message.answer(
             f"{p.name}: цвет комплекта (per-bed), затем число кроватей до {step.max_beds}.\n"
             "1 голубое\n2 серое\n3 полоска",
-            keyboard=cancel_keyboard(),
+            keyboard=color_keyboard(max_n=3),
         )
 
 
@@ -805,7 +976,7 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
         name = step.planned.name
         if s.bnovo_await_classic_beds_for == name:
             if text not in ("1", "2"):
-                await message.answer("Ответьте 1 или 2 (число кроватей).")
+                await message.answer("Сколько кроватей застелить?", keyboard=beds_12_keyboard())
                 return
             beds = max(1, min(2, int(text)))
             s.bnovo_layout_choices[name] = (False, beds)
@@ -820,9 +991,9 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
             return
         if low in ("2", "разъед", "разъединены"):
             s.bnovo_await_classic_beds_for = name
-            await message.answer("Сколько кроватей застелить? 1 или 2")
+            await message.answer("Сколько кроватей застелить?", keyboard=beds_12_keyboard())
             return
-        await message.answer("1 — соединены, 2 — разъединены")
+        await message.answer("Выберите раскладку кроватей:", keyboard=layout_joined_split_keyboard())
         return
 
     if isinstance(step, Floor4Layout):
@@ -831,7 +1002,7 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
         elif low in ("2", "разъед", "разъединены"):
             s.bnovo_layout_choices[step.planned.name] = (False, 2)
         else:
-            await message.answer("1 или 2")
+            await message.answer("Выберите раскладку кроватей:", keyboard=layout_joined_split_keyboard())
             return
         s.bnovo_wizard_index += 1
         await prompt_bnovo_step(message, s)
@@ -842,9 +1013,15 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
         if s.bnovo_per_bed_color_draft is None:
             if text in cmap:
                 s.bnovo_per_bed_color_draft = cmap[text]
-                await message.answer(f"Число кроватей 1–{step.max_beds}:")
+                await message.answer(
+                    f"Число кроватей 1–{step.max_beds}:",
+                    keyboard=floor4_beds_keyboard(step.max_beds),
+                )
             else:
-                await message.answer("Выберите цвет: 1 — голубое, 2 — серое, 3 — полоска.")
+                await message.answer(
+                    "Выберите цвет: 1 — голубое, 2 — серое, 3 — полоска.",
+                    keyboard=color_keyboard(max_n=3),
+                )
             return
         if text.isdigit():
             beds = max(1, min(step.max_beds, int(text)))
@@ -853,7 +1030,10 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
             s.bnovo_wizard_index += 1
             await prompt_bnovo_step(message, s)
         else:
-            await message.answer(f"Введите число кроватей от 1 до {step.max_beds}.")
+            await message.answer(
+                f"Введите число кроватей от 1 до {step.max_beds} или нажмите кнопку.",
+                keyboard=floor4_beds_keyboard(step.max_beds),
+            )
         return
 
 
