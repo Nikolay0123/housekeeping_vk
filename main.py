@@ -512,8 +512,16 @@ async def bnovo_cmd(message: Message) -> None:
         await message.answer("Сначала выберите сотрудника.")
         return
     s.state = "bnovo_pick_floor"
+    plan_day = s.task_for_date or tomorrow_cleaning_date()
+    if s.task_for_date:
+        intro = f"Автозадание по Bnovo на {plan_day.strftime('%d.%m.%Y')} — день из команды «дата».\n"
+    else:
+        intro = (
+            f"Автозадание по Bnovo на {plan_day.strftime('%d.%m.%Y')} (завтра). "
+            "Другой день — сначала «дата», затем снова «Bnovo».\n"
+        )
     await message.answer(
-        "Автозадание на завтра по Bnovo.\n1 — 1 этаж (101–109 + общие)\n2 — 4 этаж (порядок как в приложении)",
+        intro + "1 — 1 этаж (101–109 + общие)\n2 — 4 этаж (порядок как в приложении)",
         keyboard=bnovo_floor_keyboard(),
     )
 
@@ -1126,11 +1134,12 @@ async def finalize_floor4_manual(message: Message, s: UserSession, room: RoomRow
 
 
 async def run_bnovo(message: Message, s: UserSession, floor: FloorChoice) -> None:
+    cleaning_day = s.task_for_date or tomorrow_cleaning_date()
     try:
 
         def work() -> tuple[list[PlannedRoom], date]:
             token = bnovo.fetch_access_token(config.BNOVO_ACCOUNT_ID, config.BNOVO_API_KEY)
-            cdate = tomorrow_cleaning_date()
+            cdate = cleaning_day
             df = date.fromordinal(cdate.toordinal() - BOOKINGS_DATE_PAST_DAYS)
             dt = date.fromordinal(cdate.toordinal() + BOOKINGS_DATE_FUTURE_DAYS)
             raw = bnovo.fetch_bookings_normalized(token, df, dt)
@@ -1144,7 +1153,7 @@ async def run_bnovo(message: Message, s: UserSession, floor: FloorChoice) -> Non
 
         planned, cdate = await asyncio.to_thread(work)
         if not planned:
-            await message.answer(empty_plan_message_for_floor(floor), keyboard=main_keyboard())
+            await message.answer(empty_plan_message_for_floor(floor, cleaning_day), keyboard=main_keyboard())
             s.state = "idle"
             return
         steps = build_bnovo_wizard_steps(planned)

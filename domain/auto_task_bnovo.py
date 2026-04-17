@@ -94,14 +94,15 @@ def planned_rooms_for_floor(floor: FloorChoice) -> list[str]:
     return list(FLOOR4_ORDER)
 
 
-def empty_plan_message_for_floor(floor: FloorChoice) -> str:
+def empty_plan_message_for_floor(floor: FloorChoice, plan_date: date) -> str:
+    ds = plan_date.strftime("%d.%m.%Y")
     if floor == FloorChoice.FIRST:
         return (
-            "По данным Bnovo на завтра нет задач по номерам 101–109. "
+            f"По данным Bnovo на {ds} нет задач по номерам 101–109. "
             "Проверьте API и названия номеров."
         )
     return (
-        "По данным Bnovo на завтра нет задач по выбранным помещениям 4 этажа. "
+        f"По данным Bnovo на {ds} нет задач по выбранным помещениям 4 этажа. "
         "Проверьте API и названия номеров."
     )
 
