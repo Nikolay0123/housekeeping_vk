@@ -66,6 +66,7 @@ class UserSession:
     bnovo_per_bed_choices: dict[str, tuple[str, int]] = field(default_factory=dict)
     bnovo_per_bed_color_draft: Optional[str] = None
     bnovo_await_classic_beds_for: Optional[str] = None
+    bnovo_classic_variant_override: dict[str, int] = field(default_factory=dict)
     room_list_offset: int = 0
     employee_list_offset: int = 0
     floor4_beds_page: int = 0
@@ -96,6 +97,7 @@ def reset_interaction_state(s: UserSession) -> None:
     s.bnovo_per_bed_choices = {}
     s.bnovo_per_bed_color_draft = None
     s.bnovo_await_classic_beds_for = None
+    s.bnovo_classic_variant_override = {}
 
 
 def main_keyboard() -> str:
@@ -252,15 +254,31 @@ def floor4_beds_keyboard(sess: UserSession, max_beds: int) -> str:
     return k.get_json()
 
 
-def linen_classic_variant_keyboard(*, include_109: bool) -> str:
+def linen_classic_variant_keyboard(*, include_109: bool, include_103_105_sofa: bool = False) -> str:
     k = Keyboard(inline=True)
     for n in (1, 2, 3, 4):
         k.add(Text(str(n)))
     k.row()
     if include_109:
         k.add(Text("5")).add(Text("6")).row()
+    elif include_103_105_sofa:
+        k.add(Text("7")).add(Text("8")).row()
     k.add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
     return k.get_json()
+
+
+def classic_beds_103105_bnovo_keyboard() -> str:
+    return (
+        Keyboard(inline=True)
+        .add(Text("1"))
+        .add(Text("2"))
+        .row()
+        .add(Text("3"))
+        .add(Text("4"))
+        .row()
+        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+        .get_json()
+    )
 
 
 def linen_floor4_variant_keyboard() -> str:
@@ -285,7 +303,10 @@ def linen_variant_keyboard_for_session(s: UserSession) -> str:
         return cancel_keyboard()
     prof = s.pending_linen_profile
     if prof == "classic":
-        return linen_classic_variant_keyboard(include_109=TL.is_room109(room.name))
+        return linen_classic_variant_keyboard(
+            include_109=TL.is_room109(room.name),
+            include_103_105_sofa=TL.is_room103_or105(room.name),
+        )
     if prof == "floor4":
         return linen_floor4_variant_keyboard()
     return cancel_keyboard()
@@ -745,6 +766,23 @@ async def dispatcher(message: Message) -> None:
                 await message.answer(hint, keyboard=color_keyboard(max_n=n_col))
                 return
             if prof == "classic":
+                if TL.is_room103_or105(room.name):
+                    if v == 7:
+                        await finalize_add_room(
+                            message,
+                            s,
+                            room,
+                            TL.LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA,
+                        )
+                        return
+                    if v == 8:
+                        await finalize_add_room(
+                            message,
+                            s,
+                            room,
+                            TL.LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA,
+                        )
+                        return
                 if v == 2:
                     s.pending_linen_variant = 2
                     s.state = "pick_variant2_beds"
@@ -1026,7 +1064,15 @@ async def apply_cleaning_choice(message: Message, s: UserSession, ct: str) -> No
             opts = "Вариант белья (classic):\n1 — вар.1\n2 — вар.2 (две 1,5)\n3 — люкс\n4 — люкс+двусп. пододеяльник"
             if TL.is_room109(name):
                 opts += "\n5 — 109 соединены\n6 — 109 разъединены"
-            await message.answer(opts, keyboard=linen_classic_variant_keyboard(include_109=TL.is_room109(name)))
+            elif TL.is_room103_or105(name):
+                opts += "\n7 — соединены + диван\n8 — разъединены + диван"
+            await message.answer(
+                opts,
+                keyboard=linen_classic_variant_keyboard(
+                    include_109=TL.is_room109(name),
+                    include_103_105_sofa=TL.is_room103_or105(name),
+                ),
+            )
         else:
             await message.answer(
                 "Вариант белья (4 этаж):\n10 — на кровать\n11 — соединены\n12 — разъединены\n1–3 устар. база2/3/4 гостя",
@@ -1120,6 +1166,7 @@ async def run_bnovo(message: Message, s: UserSession, floor: FloorChoice) -> Non
         s.bnovo_per_bed_choices = {}
         s.bnovo_per_bed_color_draft = None
         s.bnovo_await_classic_beds_for = None
+        s.bnovo_classic_variant_override = {}
         s.floor4_beds_page = 0
         s.task_for_date = cdate
         s.state = "bnovo_wizard"
@@ -1142,6 +1189,16 @@ async def prompt_bnovo_step(message: Message, s: UserSession) -> None:
         return
     if isinstance(step, ClassicBeds):
         p = step.planned
+        if TL.is_room103_or105(p.name):
+            await message.answer(
+                f"{p.name}: вариант раскладки и комплекта белья\n"
+                "1 — соединены (вариант 1)\n"
+                "2 — разъединены (вариант 2, затем 1–2 кровати)\n"
+                "3 — соединены + диван\n"
+                "4 — разъединены + диван",
+                keyboard=classic_beds_103105_bnovo_keyboard(),
+            )
+            return
         await message.answer(
             f"{p.name}: кровати\n1 — соединены\n2 — разъединены (затем уточним 1–2 кровати)\nили кнопки ниже.",
             keyboard=layout_joined_split_keyboard(),
@@ -1171,6 +1228,43 @@ async def handle_bnovo_wizard(message: Message, s: UserSession, text: str, low: 
         return
     if isinstance(step, ClassicBeds):
         name = step.planned.name
+        if TL.is_room103_or105(name):
+            if s.bnovo_await_classic_beds_for == name:
+                if text not in ("1", "2"):
+                    await message.answer("Сколько кроватей застелить?", keyboard=beds_12_keyboard())
+                    return
+                beds = max(1, min(2, int(text)))
+                s.bnovo_layout_choices[name] = (False, beds)
+                s.bnovo_await_classic_beds_for = None
+                s.bnovo_wizard_index += 1
+                await prompt_bnovo_step(message, s)
+                return
+            if text == "1":
+                s.bnovo_layout_choices[name] = (True, 2)
+                s.bnovo_wizard_index += 1
+                await prompt_bnovo_step(message, s)
+                return
+            if text == "2":
+                s.bnovo_await_classic_beds_for = name
+                await message.answer("Сколько кроватей застелить?", keyboard=beds_12_keyboard())
+                return
+            if text == "3":
+                s.bnovo_classic_variant_override[name] = TL.LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA
+                s.bnovo_layout_choices[name] = (True, 2)
+                s.bnovo_wizard_index += 1
+                await prompt_bnovo_step(message, s)
+                return
+            if text == "4":
+                s.bnovo_classic_variant_override[name] = TL.LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA
+                s.bnovo_layout_choices[name] = (False, 2)
+                s.bnovo_wizard_index += 1
+                await prompt_bnovo_step(message, s)
+                return
+            await message.answer(
+                "Выберите 1–4 кнопкой.",
+                keyboard=classic_beds_103105_bnovo_keyboard(),
+            )
+            return
         if s.bnovo_await_classic_beds_for == name:
             if text not in ("1", "2"):
                 await message.answer("Сколько кроватей застелить?", keyboard=beds_12_keyboard())
@@ -1259,6 +1353,7 @@ async def apply_full_bnovo(message: Message, s: UserSession) -> None:
     for p in planned:
         lo = s.bnovo_layout_choices.get(p.name)
         pb = s.bnovo_per_bed_choices.get(p.name)
+        override = s.bnovo_classic_variant_override.get(p.name)
         queue.append(
             planned_to_queue_item(
                 p,
@@ -1266,6 +1361,7 @@ async def apply_full_bnovo(message: Message, s: UserSession) -> None:
                 lo[1] if lo else 2,
                 pb[0] if pb else None,
                 pb[1] if pb else None,
+                classic_variant_override=override,
             )
         )
     s.queue = queue
@@ -1277,6 +1373,7 @@ async def apply_full_bnovo(message: Message, s: UserSession) -> None:
     s.bnovo_per_bed_choices = {}
     s.bnovo_per_bed_color_draft = None
     s.bnovo_await_classic_beds_for = None
+    s.bnovo_classic_variant_override = {}
     s.floor4_beds_page = 0
     await message.answer(
         f"Очередь из Bnovo на {cdate.isoformat()} готова ({len(queue)} поз.). Проверьте и нажмите «Отправить».",

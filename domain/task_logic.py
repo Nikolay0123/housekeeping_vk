@@ -60,6 +60,8 @@ LINEN_VARIANT_FLOOR4_PER_BED = 10
 LINEN_VARIANT_FLOOR4_JOINED = 11
 LINEN_VARIANT_FLOOR4_SPLIT = 12
 LINEN_VARIANT_CLASSIC_101_107 = 7
+LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA = 13
+LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA = 14
 
 LINEN_FOOT_TOWEL = "Полотенце для ног"
 
@@ -122,6 +124,24 @@ LINEN_PACKAGES: dict[int, dict[str, int]] = {
         "Наволочка": 2,
         "Полотенце банное с вышивкой": 1,
         "Полотенце для лица": 1,
+        "Полотенце для ног": 1,
+    },
+    LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA: {
+        "Простыня двуспальная": 1,
+        "Простыня 1,5 спальная": 1,
+        "Пододеяльник двуспальный": 1,
+        "Пододеяльник 1,5 спальный": 1,
+        "Наволочка": 3,
+        "Полотенце банное с вышивкой": 3,
+        "Полотенце для лица": 3,
+        "Полотенце для ног": 1,
+    },
+    LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA: {
+        "Простыня 1,5 спальная": 3,
+        "Пододеяльник 1,5 спальный": 3,
+        "Наволочка": 3,
+        "Полотенце банное с вышивкой": 3,
+        "Полотенце для лица": 3,
         "Полотенце для ног": 1,
     },
 }
@@ -349,6 +369,11 @@ def is_room101_or107(room_name: str) -> bool:
     return n in ("Номер 101", "Номер 107")
 
 
+def is_room103_or105(room_name: str) -> bool:
+    n = room_name.strip()
+    return n in ("Номер 103", "Номер 105")
+
+
 def classic_linen_quantities(item: QueueItem) -> Optional[dict[str, int]]:
     v = item.linen_variant
     if v is None:
@@ -434,6 +459,8 @@ def classic_linen_variant_button_title(variant: int) -> str:
         5: "Номер 109 — соединённые кровати",
         6: "Номер 109 — разъединённые кровати",
         LINEN_VARIANT_CLASSIC_101_107: "Номера 101 и 107 — фиксированный комплект",
+        LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA: "103/105 — соединены + диван",
+        LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA: "103/105 — разъединены + диван",
     }.get(variant, f"Вариант {variant}")
 
 
@@ -533,6 +560,10 @@ def format_channel_message(
                         if bk == 1
                         else " — кровати разъединены (109), застелить 2 кровати"
                     )
+                elif variant == LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA:
+                    bed_config = " — 103/105: соединены + диван"
+                elif variant == LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA:
+                    bed_config = " — 103/105: разъединены + диван"
             elif profile == "floor4":
                 if variant == LINEN_VARIANT_FLOOR4_PER_BED:
                     col = format_linen_color(r.linen_color)
@@ -662,6 +693,10 @@ def format_history_detail_text(
             extra = ", 109 соед."
         elif profile == "classic" and r.linen_variant == LINEN_VARIANT_CLASSIC_101_107:
             extra = ", 101/107 фикс."
+        elif profile == "classic" and r.linen_variant == LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA:
+            extra = ", 103/105 соед.+диван"
+        elif profile == "classic" and r.linen_variant == LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA:
+            extra = ", 103/105 разъед.+диван"
         area0 = int(round(r.area))
         lines.append(f"  {i}. {r.name} — {area0} м² — {ct}{extra}")
         for ln in format_room_linen_detail_lines(r):

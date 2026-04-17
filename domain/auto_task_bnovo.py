@@ -315,6 +315,7 @@ def planned_to_queue_item(
     split_beds: int,
     floor4_per_bed_color: Optional[str],
     floor4_per_bed_count: Optional[int],
+    classic_variant_override: Optional[int] = None,
 ) -> QueueItem:
     room_id = planned.room_id
     ct = planned.cleaning_type
@@ -356,6 +357,22 @@ def planned_to_queue_item(
             area=planned.area,
             cleaning_type=ct,
             linen_variant=TL.LINEN_VARIANT_CLASSIC_101_107,
+        )
+    if (
+        classic_variant_override is not None
+        and TL.is_room103_or105(name)
+        and classic_variant_override
+        in (
+            TL.LINEN_VARIANT_CLASSIC_103_105_JOINED_SOFA,
+            TL.LINEN_VARIANT_CLASSIC_103_105_SPLIT_SOFA,
+        )
+    ):
+        return QueueItem(
+            id=room_id,
+            name=name,
+            area=planned.area,
+            cleaning_type=ct,
+            linen_variant=classic_variant_override,
         )
     joined = beds_joined if beds_joined is not None else True
     beds = max(1, min(2, split_beds))
