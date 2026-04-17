@@ -4,7 +4,7 @@ import asyncio
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from vkbottle import Keyboard, KeyboardButtonColor, Text
@@ -122,6 +122,37 @@ def main_keyboard() -> str:
 
 def cancel_keyboard() -> str:
     return Keyboard(inline=True).add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE).get_json()
+
+
+def task_date_keyboard() -> str:
+    return (
+        Keyboard(inline=True)
+        .add(Text("Сегодня"))
+        .add(Text("Завтра"))
+        .add(Text("Послезавтра"))
+        .row()
+        .add(Text("Своя дата"))
+        .add(Text("Сброс"))
+        .row()
+        .add(Text("Отмена"), color=KeyboardButtonColor.NEGATIVE)
+        .get_json()
+    )
+
+
+def task_date_status_line(s: UserSession) -> str:
+    if s.task_for_date:
+        return f"День задания: {s.task_for_date.strftime('%d.%m.%Y')}"
+    return "День задания: не указан — в тексте не будет блока «Дата уборки»."
+
+
+def parse_task_date_input(text: str) -> Optional[date]:
+    t = text.strip()
+    for fmt in ("%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return datetime.strptime(t, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _add_many_text_buttons(k: Keyboard, labels: list[str], *, max_per_row: int = VK_INLINE_MAX_PER_ROW) -> None:
@@ -378,7 +409,8 @@ async def menu_handler(message: Message) -> None:
         "Добро пожаловать. Бот формирует задания для горничных: очередь номеров, виды уборки, "
         "комплекты белья, лимит площади и автоплан из Bnovo — как в мобильном приложении.\n\n"
         "Действия — встроенные кнопки под этим сообщением (inline). Напишите «Меню», чтобы снова показать их.\n"
-        "Если снизу экрана осталась старая «постоянная» клавиатура — в приложении ВК её можно скрыть.\n\n"
+        "Если снизу экрана осталась старая «постоянная» клавиатура — в приложении ВК её можно скрыть.\n"
+        "День, на который составляется задание: напишите «дата» (пока не выберете — строка «Дата уборки» в текст задания не добавляется).\n\n"
         "Выберите действие:",
         keyboard=main_keyboard(),
     )
@@ -425,7 +457,21 @@ async def queue_cmd(message: Message) -> None:
     for i, q in enumerate(s.queue, start=1):
         lines.append(f"{i}. {q.name} — {TL.format_cleaning_type(q.cleaning_type)}")
     lines.append("\nУдалить строку: удалить 3")
+    lines.append("")
+    lines.append(task_date_status_line(s))
+    lines.append("Сменить день задания: напишите «дата».")
     await message.answer("\n".join(lines))
+
+
+@bot.on.message(text=["Дата", "дата", "День задания", "день задания"])
+async def task_date_cmd(message: Message) -> None:
+    s = sess_of(message.from_id)
+    s.state = "pick_task_date"
+    await message.answer(
+        "На какой день оформляем задание? Оно попадёт в текст при «Отправить», в историю и на стену (если настроена).\n\n"
+        + task_date_status_line(s),
+        keyboard=task_date_keyboard(),
+    )
 
 
 @bot.on.message(text="Комментарий")
@@ -478,7 +524,8 @@ async def send_cmd(message: Message) -> None:
             list(s.queue),
             total,
             s.comment,
-            None,
+            message_id=None,
+            task_for_date=s.task_for_date,
         )
 
     try:
@@ -512,7 +559,15 @@ async def history_cmd(message: Message) -> None:
         return
     lines = ["Последние задания. Подробно: задание 123"]
     for t in tasks:
-        lines.append(f"#{t.id} — {TL.format_time_hhmm_ms(t.created_at_ms)} — {t.employee_key} — {t.total_area:.0f} м²")
+        due = ""
+        if t.task_for_date_iso:
+            try:
+                due = date.fromisoformat(t.task_for_date_iso).strftime("%d.%m") + " — "
+            except ValueError:
+                pass
+        lines.append(
+            f"#{t.id} — {due}{TL.format_time_hhmm_ms(t.created_at_ms)} — {t.employee_key} — {t.total_area:.0f} м²"
+        )
     await message.answer("\n".join(lines))
 
 
@@ -578,6 +633,65 @@ async def dispatcher(message: Message) -> None:
         s.comment = None if text in ("-", "") else text
         s.state = "idle"
         await message.answer(f"Комментарий: {s.comment or 'нет'}", keyboard=main_keyboard())
+        return
+
+    if s.state == "enter_task_date":
+        d = parse_task_date_input(text)
+        if not d:
+            await message.answer(
+                "Не распознано. Введите дату как ДД.ММ.ГГГГ (например 15.04.2026).",
+                keyboard=cancel_keyboard(),
+            )
+            return
+        today = date.today()
+        if d < today - timedelta(days=60) or d > today + timedelta(days=800):
+            await message.answer(
+                "Дата слишком далеко от сегодня. Укажите другую.",
+                keyboard=cancel_keyboard(),
+            )
+            return
+        s.task_for_date = d
+        s.state = "idle"
+        await message.answer(
+            f"День задания: {d.strftime('%d.%m.%Y')}",
+            keyboard=main_keyboard(),
+        )
+        return
+
+    if s.state == "pick_task_date":
+        if text == "Своя дата":
+            s.state = "enter_task_date"
+            await message.answer(
+                "Введите дату в формате ДД.ММ.ГГГГ (например 18.04.2026).",
+                keyboard=cancel_keyboard(),
+            )
+            return
+        if text == "Сброс":
+            s.task_for_date = None
+            s.state = "idle"
+            await message.answer(
+                "День задания сброшен. При «Отправить» блок «Дата уборки» в текст не войдёт.",
+                keyboard=main_keyboard(),
+            )
+            return
+        if text == "Сегодня":
+            s.task_for_date = date.today()
+        elif text == "Завтра":
+            s.task_for_date = date.today() + timedelta(days=1)
+        elif text == "Послезавтра":
+            s.task_for_date = date.today() + timedelta(days=2)
+        else:
+            await message.answer(
+                "Выберите вариант кнопкой или «Отмена».",
+                keyboard=task_date_keyboard(),
+            )
+            return
+        s.state = "idle"
+        td = s.task_for_date
+        await message.answer(
+            f"День задания: {td.strftime('%d.%m.%Y')}" if td else "Готово.",
+            keyboard=main_keyboard(),
+        )
         return
 
     if s.state == "pick_room":
@@ -834,6 +948,12 @@ async def dispatcher(message: Message) -> None:
         got = db.get_task(tid)
         if got:
             task, rooms = got
+            due: Optional[date] = None
+            if task.task_for_date_iso:
+                try:
+                    due = date.fromisoformat(task.task_for_date_iso)
+                except ValueError:
+                    due = None
             detail = TL.format_history_detail_text(
                 task.id,
                 task.created_at_ms,
@@ -842,6 +962,7 @@ async def dispatcher(message: Message) -> None:
                 task.total_area,
                 task.comment,
                 db.employee_name_by_key(),
+                task_for_date=due,
             )
             await send_chunks(message, detail)
         else:

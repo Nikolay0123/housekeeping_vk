@@ -4,6 +4,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +36,7 @@ class TaskRow:
     total_area: float
     comment: Optional[str]
     message_id: Optional[int]
+    task_for_date_iso: Optional[str] = None
 
 
 class Database:
@@ -67,10 +69,15 @@ class Database:
                 rooms_json TEXT NOT NULL,
                 total_area REAL NOT NULL,
                 comment TEXT,
-                message_id INTEGER
+                message_id INTEGER,
+                task_for_date_iso TEXT
             );
             """
         )
+        cur = self._conn.execute("PRAGMA table_info(tasks)")
+        col_names = {str(row[1]) for row in cur.fetchall()}
+        if "task_for_date_iso" not in col_names:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN task_for_date_iso TEXT")
         self._conn.commit()
 
     def _seed(self) -> None:
@@ -187,15 +194,17 @@ class Database:
         total_area: float,
         comment: Optional[str],
         message_id: Optional[int] = None,
+        task_for_date: Optional[date] = None,
     ) -> int:
         payload = [asdict(qi) for qi in rooms]
         rooms_json = json.dumps(payload, ensure_ascii=False)
+        tiso = task_for_date.isoformat() if task_for_date else None
         cur = self._conn.execute(
             """
-            INSERT INTO tasks (created_at_ms, employee_key, rooms_json, total_area, comment, message_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO tasks (created_at_ms, employee_key, rooms_json, total_area, comment, message_id, task_for_date_iso)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (created_at_ms, employee_key, rooms_json, total_area, comment, message_id),
+            (created_at_ms, employee_key, rooms_json, total_area, comment, message_id, tiso),
         )
         self._conn.commit()
         return int(cur.lastrowid)
@@ -203,7 +212,7 @@ class Database:
     def get_last_tasks(self, limit: int = 50) -> list[TaskRow]:
         rows = self._conn.execute(
             f"""
-            SELECT id, created_at_ms, employee_key, rooms_json, total_area, comment, message_id
+            SELECT id, created_at_ms, employee_key, rooms_json, total_area, comment, message_id, task_for_date_iso
             FROM tasks ORDER BY id DESC LIMIT {int(limit)}
             """
         ).fetchall()
@@ -216,6 +225,7 @@ class Database:
                 float(r["total_area"]),
                 r["comment"],
                 int(r["message_id"]) if r["message_id"] is not None else None,
+                str(r["task_for_date_iso"]) if r["task_for_date_iso"] else None,
             )
             for r in rows
         ]
@@ -223,7 +233,7 @@ class Database:
     def get_task(self, task_id: int) -> Optional[tuple[TaskRow, list[QueueItem]]]:
         r = self._conn.execute(
             """
-            SELECT id, created_at_ms, employee_key, rooms_json, total_area, comment, message_id
+            SELECT id, created_at_ms, employee_key, rooms_json, total_area, comment, message_id, task_for_date_iso
             FROM tasks WHERE id = ?
             """,
             (task_id,),
@@ -238,6 +248,7 @@ class Database:
             float(r["total_area"]),
             r["comment"],
             int(r["message_id"]) if r["message_id"] is not None else None,
+            str(r["task_for_date_iso"]) if r["task_for_date_iso"] else None,
         )
         raw = json.loads(task.rooms_json)
         rooms = [QueueItem.from_dict(x) for x in raw]

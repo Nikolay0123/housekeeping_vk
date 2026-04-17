@@ -623,6 +623,7 @@ def format_history_detail_text(
     total_area: float,
     comment: Optional[str],
     employee_display_names: Optional[dict[str, str]] = None,
+    task_for_date: Optional[date] = None,
 ) -> str:
     total_area0 = int(round(total_area))
     lines = [
@@ -630,9 +631,10 @@ def format_history_detail_text(
         format_employee_name(employee_key, employee_display_names),
         format_datetime_ms(created_at_ms),
         f"{total_area0} м², помещений: {len(rooms)}",
-        "",
-        "Порядок уборки:",
     ]
+    if task_for_date:
+        lines.append(f"Дата уборки: {task_for_date.strftime('%d.%m.%Y')}")
+    lines.extend(["", "Порядок уборки:"])
     for idx, r in enumerate(rooms):
         i = idx + 1
         ct = format_cleaning_type(r.cleaning_type)
