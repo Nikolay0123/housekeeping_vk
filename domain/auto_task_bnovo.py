@@ -154,7 +154,8 @@ def cleaning_type_for_room(bookings: list[NormalizedBooking], cleaning_date: dat
     if staying:
         b = min(staying, key=lambda x: x.arrival)
         day_num = (C.toordinal() - b.arrival.toordinal()) + 1
-        if day_num >= 2 and (day_num - 1) % 3 == 0:
+        # Смена белья каждые 3 суток; цикл сдвинут на +2 дня относительно (day_num-1)%3==0 (было 4,7,10… → 6,9,12…).
+        if day_num >= 6 and (day_num - 3) % 3 == 0:
             return "current_linen"
         if day_num >= 2:
             return "current"
