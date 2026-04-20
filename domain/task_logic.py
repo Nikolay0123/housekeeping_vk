@@ -341,6 +341,10 @@ def format_linen_color(key: Optional[str]) -> str:
     return LINEN_COLORS.get(key, key)
 
 
+def linen_units_for_color_totals(pkg: dict[str, int]) -> int:
+    return sum(qty for name, qty in pkg.items() if not name.startswith("Полотенце"))
+
+
 def resolve_linen_profile(item: QueueItem) -> Optional[str]:
     p = item.linen_profile
     if p in ("classic", "floor4"):
@@ -595,12 +599,14 @@ def format_channel_message(
                 ck = r.linen_color
                 if ck and ck in LINEN_COLORS:
                     label = LINEN_COLORS[ck]
-                    sum_qty = sum(floor4_pkg.values())
+                    sum_qty = linen_units_for_color_totals(floor4_pkg)
                     linen_color_totals[label] = linen_color_totals.get(label, 0) + sum_qty
         elif classic_pkg is not None:
             for item_name, qty in classic_pkg.items():
                 add_linen_item(item_name, qty)
-            linen_color_totals["белое"] = linen_color_totals.get("белое", 0) + sum(classic_pkg.values())
+            linen_color_totals["белое"] = linen_color_totals.get("белое", 0) + linen_units_for_color_totals(
+                classic_pkg
+            )
 
     total_area0 = int(round(total_area))
     limit0 = int(round(limit))
