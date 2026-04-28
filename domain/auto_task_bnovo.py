@@ -210,15 +210,13 @@ def planned_room_for(
 
 def _plan_ordered_rooms(
     room_names: list[str],
-    common_names: list[str],
+    _common_names: list[str],
     active_rooms_by_name: dict[str, dict[str, Any]],
     bookings_by_room: dict[str, list[NormalizedBooking]],
     cleaning_date: date,
     floor_choice: FloorChoice,
 ) -> list[PlannedRoom]:
     queue: list[PlannedRoom] = []
-    running_area = 0.0
-    limit = TL.AREA_LIMIT
     numbered: list[PlannedRoom] = []
     room_index_by_name = {n: i for i, n in enumerate(room_names)}
     for name in room_names:
@@ -244,26 +242,6 @@ def _plan_ordered_rooms(
     )
     for p in numbered:
         queue.append(p)
-        running_area += p.area
-    for name in common_names:
-        ent = active_rooms_by_name.get(name)
-        if not ent:
-            continue
-        if running_area + float(ent["area"]) > limit:
-            break
-        queue.append(
-            PlannedRoom(
-                room_id=ent["id"],
-                name=ent["name"],
-                area=float(ent["area"]),
-                cleaning_type="current",
-                needs_classic_bed_wizard=False,
-                needs_floor4_layout_wizard=False,
-                needs_floor4_per_bed_wizard=False,
-                floor4_max_beds=4,
-            )
-        )
-        running_area += float(ent["area"])
     return queue
 
 
